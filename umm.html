@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Blockchain · Mock Wallet · Tx Simulator</title>
+  <style>
+    :root{--bg:#111417;--fg:#e6e7e9;--muted:#a2a5aa;--card:#161a1f;--line:#252b33;--accent:#7aa2f7;--good:#6ee7b7;--bad:#fca5a5}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Apple SD Gothic Neo,Noto Sans KR,Helvetica,Arial,sans-serif;}
+    header{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:center}
+    h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px}
+    main{display:grid;grid-template-columns:320px 1fr;gap:16px;padding:16px;}
+    @media (max-width: 960px){main{grid-template-columns:1fr}}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+    .section-title{font-size:14px;color:var(--muted);margin:0 0 8px 2px;text-transform:uppercase;letter-spacing:.8px}
+    label{font-size:13px;color:var(--muted);display:block;margin:6px 0 6px}
+    input,select,button,textarea{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:#0f1317;color:var(--fg);font-size:14px}
+    button{cursor:pointer;transition:.15s ease;}
+    button:hover{border-color:#2f3742}
+    .row{display:flex;gap:8px}
+    .row>div{flex:1}
+    .pill{display:inline-flex;gap:8px;align-items:center;background:#0f1317;border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:12px;color:var(--muted)}
+    .list{display:flex;flex-direction:column;gap:8px}
+    .addr{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-size:12px}
+    .muted{color:var(--muted)}
+    .log{height:160px;overflow:auto;border-radius:12px;background:#0c0f13;border:1px solid var(--line);padding:10px;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap}
+    .chip{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:#0f1317;font-size:12px}
+    .badge{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);}
+    .good{color:var(--good);border-color:#234138}
+    .bad{color:var(--bad);border-color:#3e1f1f}
+    .mono{font-family:ui-monospace,monospace}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .hint{font-size:12px;color:var(--muted)}
+    details{border:1px solid var(--line);background:#0f1317;border-radius:12px;padding:10px}
+    summary{cursor:pointer;color:var(--muted)}
+    .table{width:100%;border-collapse:collapse;font-size:12px}
+    .table th,.table td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left}
+    .nowrap{white-space:nowrap}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Mini Blockchain · Wallet · Tx Sim</h1>
+    <span class="pill">Difficulty <strong id="difficultyLabel">2</strong></span>
+    <input id="difficulty" type="range" min="0" max="4" value="2" style="max-width:180px" />
+    <button id="btnValidate" style="max-width:160px">체인 유효성 검사</button>
+  </header>
+
+  <main>
+    <!-- Sidebar: Wallet & Tx -->
+    <section class="card" id="wallet">
+      <h2 class="section-title">Wallet</h2>
+      <div class="row">
+        <button id="btnNewAddr">지갑 주소 생성</button>
+        <button id="btnClearAddr">모든 주소 삭제</button>
+      </div>
+      <label>내 지갑 주소들</label>
+      <div id="addrList" class="list"></div>
+      <p class="hint">※ 모의 주소이며 실제 개인키/보안과 무관합니다.</p>
+
+      <hr style="border:none;border-top:1px solid var(--line);margin:12px 0" />
+      <h2 class="section-title">New Transaction</h2>
+      <div class="row">
+        <div>
+          <label>From (보내는 주소)</label>
+          <select id="from"></select>
+        </div>
+        <div>
+          <label>To (받는 주소)</label>
+          <input id="to" placeholder="0x... 또는 임의 텍스트" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Amount</label>
+          <input id="amount" type="number" min="0" step="0.0001" placeholder="e.g. 1.25" />
+        </div>
+        <div>
+          <label>메모 (선택)</label>
+          <input id="memo" placeholder="optional memo" />
+        </div>
+      </div>
+      <div class="row">
+        <button id="btnAddTx">트랜잭션 추가 (mempool)</button>
+        <button id="btnMine">블록 채굴 (mempool → block)</button>
+      </div>
+      <p class="hint">채굴 시, 보상 트랜잭션이 From: SYSTEM → To: 선택한 From 주소로 50 코인 지급됩니다.</p>
+    </section>
+
+    <!-- Main: Chain & Mempool & Logs -->
+    <section class="card" id="chain">
+      <h2 class="section-title">Blockchain</h2>
+      <div id="chainView"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="btnReset">체인 리셋 (Genesis)</button>
+      </div>
+
+      <h2 class="section-title" style="margin-top:18px">Mempool</h2>
+      <div id="mempoolView"></div>
+
+      <h2 class="section-title" style="margin-top:18px">Logs</h2>
+      <div id="log" class="log"></div>
+
+      <details style="margin-top:12px">
+        <summary>개념 설명 (간단)</summary>
+        <ul>
+          <li><strong>블록</strong>: 여러 트랜잭션 + 이전 블록의 해시 + Nonce 를 포함</li>
+          <li><strong>해시</strong>: 블록 내용을 고정 길이 문자열로 요약 (여기선 교육용 간이 해시)</li>
+          <li><strong>이전 해시</strong>: 체인 연결의 고리. 변조 시 이후 모든 해시가 달라짐</li>
+          <li><strong>난이도/채굴</strong>: 해시가 <code>0</code>이 특정 개수만큼 앞에 오도록 Nonce 를 찾는 과정</li>
+          <li><strong>mempool</strong>: 아직 블록에 포함되지 않은 대기 중 트랜잭션</li>
+        </ul>
+      </details>
+    </section>
+
+    <!-- Hash Generator Section -->
+    <section class="card" style="margin-top:24px;">
+      <h2 class="section-title">Hash Generator</h2>
+      <div class="row">
+        <input id="hashInput" placeholder="아무 문자열 입력" />
+        <button id="btnHashGen">Hash 생성</button>
+      </div>
+      <div style="margin-top:10px">
+        <label>결과 해시</label>
+        <div id="hashResult" class="mono" style="word-break:break-all"></div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:24px;">
+      <h2 class="section-title">블록 해시 강제 변경</h2>
+      <div class="row">
+        <input id="blockIndexInput" type="number" min="1" step="1" placeholder="블록 인덱스 (1~)" style="width:90px" />
+        <input id="newHashInput" placeholder="새 해시값" />
+        <button id="btnSetBlockHash">해시 변경</button>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        ※ 1 이상의 인덱스만 입력하세요.<br>
+        (0은 Genesis 블록, 변경 불가)
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // =============================
+    //  Simple (toy) hash: FNV-1a 64
+    //  (교육용 간이 해시 — 보안용 아님)
+    // =============================
+    function fnv1a64Hex(str){
+      let h = BigInt('0xcbf29ce484222325');
+      const p = BigInt('0x100000001b3');
+      for (let i=0;i<str.length;i++){
+        h ^= BigInt(str.charCodeAt(i));
+        h = (h * p) & BigInt('0xFFFFFFFFFFFFFFFF');
+      }
+      let hex = h.toString(16);
+      return hex.padStart(16,'0'); // 64-bit → 16 hex
+    }
+    // 확장: 두 번 해시해서 32 hex로 길이 확장 (가독용)
+    function toyHash(payload){
+      const a = fnv1a64Hex(payload);
+      const b = fnv1a64Hex(a + '|' + payload.length);
+      return (a + b).toLowerCase(); // 32 hex (128-bit 표기처럼 보이게)
+    }
+
+    // =============================
+    //  Data models
+    // =============================
+    class Transaction{
+      constructor(from,to,amount,memo=""){
+        this.from = from; this.to = to; this.amount = Number(amount);
+        this.memo = memo; this.ts = Date.now();
+      }
+    }
+
+    class Block{
+      constructor(index, prevHash, transactions){
+        this.index = index;
+        this.prevHash = prevHash;
+        this.transactions = transactions; // array
+        this.timestamp = Date.now();
+        this.nonce = 0;
+        this.hash = this.computeHash();
+      }
+      computeHash(){
+        const payload = JSON.stringify({
+          index:this.index,
+          prevHash:this.prevHash,
+          transactions:this.transactions,
+          timestamp:this.timestamp,
+          nonce:this.nonce
+        });
+        return toyHash(payload);
+      }
+      mine(difficulty){
+        const target = '0'.repeat(difficulty);
+        let attempts = 0;
+        while(!this.hash.startsWith(target)){
+          this.nonce++;
+          this.hash = this.computeHash();
+          if(++attempts % 50000 === 0){
+            log(`[Block ${this.index}] mining… attempts=${attempts}`);
+          }
+        }
+        log(`✅ 블록 ${this.index} 채굴 완료 | nonce=${this.nonce} | hash=${this.hash}`);
+      }
+    }
+
+    class Blockchain{
+      constructor(){
+        this.difficulty = 2;
+        this.chain = [this.createGenesis()];
+        this.mempool = [];
+      }
+      createGenesis(){
+        const g = new Block(0,'0'.repeat(32),[new Transaction('SYSTEM','GENESIS',0,'genesis')]);
+        g.hash = g.computeHash();
+        return g;
+      }
+      get latest(){ return this.chain[this.chain.length-1]; }
+      addTransaction(tx){ this.mempool.push(tx); renderMempool(); }
+      minePending(minerAddress){
+        if(this.mempool.length===0){ log('mempool 비어있음: 채굴할 트랜잭션이 없습니다.'); return; }
+        // 보상 트랜잭션 추가
+        const reward = new Transaction('SYSTEM', minerAddress, 50, 'block reward');
+        const blockTxs = [...this.mempool, reward];
+        const block = new Block(this.latest.index+1, this.latest.hash, blockTxs);
+        block.mine(this.difficulty);
+        this.chain.push(block);
+        this.mempool = []; // clear
+        renderChain();
+        renderMempool();
+      }
+      isValid(){
+        for(let i=1;i<this.chain.length;i++){
+          const cur = this.chain[i];
+          const prev = this.chain[i-1];
+          if(cur.prevHash !== prev.hash) return {ok:false, index:i, reason:'prevHash mismatch'};
+          const recalculated = (new Block(cur.index, cur.prevHash, cur.transactions));
+          recalculated.timestamp = cur.timestamp; // keep original
+          recalculated.nonce = cur.nonce;
+          recalculated.hash = recalculated.computeHash();
+          if(cur.hash !== recalculated.hash) return {ok:false, index:i, reason:'hash mismatch'};
+        }
+        return {ok:true};
+      }
+      reset(){ this.chain = [this.createGenesis()]; this.mempool=[]; }
+    }
+
+    // =============================
+    //  App state & helpers
+    // =============================
+    const state = {
+      bc: new Blockchain(),
+      addrs: loadJSON('addresses',[])
+    };
+
+    function saveJSON(key,val){ localStorage.setItem(key, JSON.stringify(val)); }
+    function loadJSON(key,def){ try{ return JSON.parse(localStorage.getItem(key)||JSON.stringify(def)); }catch(e){return def} }
+    function randomHex(n){
+      const chars = '0123456789abcdef';
+      let s='';
+      for(let i=0;i<n;i++){ s += chars[Math.floor(Math.random()*16)]; }
+      return s;
+    }
+    function newAddress(){ return '0x'+randomHex(40); }
+    function log(msg){ const el = document.getElementById('log'); el.textContent += `\n${new Date().toLocaleTimeString()}  ${msg}`; el.scrollTop = el.scrollHeight; }
+
+    // =============================
+    //  Rendering
+    // =============================
+    function renderAddrs(){
+      const list = document.getElementById('addrList');
+      const sel = document.getElementById('from');
+      list.innerHTML=''; sel.innerHTML='';
+      state.addrs.forEach((a,i)=>{
+        const row = document.createElement('div');
+        row.className='chip addr';
+        row.innerHTML = `<span class="badge">#${i+1}</span><span>${a}</span>`;
+        list.appendChild(row);
+        const opt = document.createElement('option'); opt.value=a; opt.textContent=a; sel.appendChild(opt);
+      });
+      if(state.addrs.length===0){
+        list.innerHTML = '<div class="hint">아직 생성된 주소가 없습니다. "지갑 주소 생성"을 눌러주세요.</div>';
+      }
+    }
+
+    function renderMempool(){
+      const box = document.getElementById('mempoolView');
+      if(state.bc.mempool.length===0){ box.innerHTML = '<div class="hint">(비어있음)</div>'; return; }
+      let html = '<table class="table">\n<thead><tr><th>#</th><th>From</th><th>To</th><th class="nowrap">Amount</th><th>Memo</th></tr></thead><tbody>';
+      state.bc.mempool.forEach((t,idx)=>{
+        html += `<tr><td>${idx+1}</td><td class="mono">${t.from}</td><td class="mono">${t.to}</td><td>${t.amount}</td><td>${t.memo||''}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      box.innerHTML = html;
+    }
+
+    function renderChain(){
+      const wrap = document.getElementById('chainView');
+      wrap.innerHTML='';
+      state.bc.chain.forEach(b=>{
+        const card = document.createElement('div');
+        card.className='card';
+        const txRows = b.transactions.map((t,i)=>`<tr><td>${i+1}</td><td class="mono">${t.from}</td><td class="mono">${t.to}</td><td>${t.amount}</td><td>${t.memo||''}</td></tr>`).join('');
+        card.innerHTML = `
+          <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div class="pill">Index <strong>${b.index}</strong></div>
+            <div class="pill">Time ${new Date(b.timestamp).toLocaleString()}</div>
+            <div class="pill">Nonce ${b.nonce}</div>
+          </div>
+          <div class="row">
+            <div class="mono" style="flex:1"><span class="muted">prevHash</span><br>${b.prevHash}</div>
+          </div>
+          <div class="row" style="margin-top:6px">
+            <div class="mono" style="flex:1"><span class="muted">hash</span><br>${b.hash}</div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="muted" style="margin-bottom:4px">Transactions (${b.transactions.length})</div>
+            <div style="overflow:auto">
+              <table class="table">
+                <thead><tr><th>#</th><th>From</th><th>To</th><th class="nowrap">Amount</th><th>Memo</th></tr></thead>
+                <tbody>${txRows}</tbody>
+              </table>
+            </div>
+          </div>`;
+        wrap.appendChild(card);
+      });
+    }
+
+    // =============================
+    //  Event bindings
+    // =============================
+    document.getElementById('difficulty').addEventListener('input', e=>{
+      const v = Number(e.target.value);
+      state.bc.difficulty = v;
+      document.getElementById('difficultyLabel').textContent = String(v);
+    });
+
+    document.getElementById('btnNewAddr').addEventListener('click', ()=>{
+      const a = newAddress();
+      state.addrs.push(a); saveJSON('addresses', state.addrs);
+      renderAddrs();
+      log(`새 주소 생성: ${a}`);
+    });
+
+    document.getElementById('btnClearAddr').addEventListener('click', ()=>{
+      if(!confirm('모든 저장된 주소를 삭제할까요?')) return;
+      state.addrs = []; saveJSON('addresses', state.addrs); renderAddrs();
+      log('주소 목록을 비웠습니다.');
+    });
+
+    document.getElementById('btnAddTx').addEventListener('click', ()=>{
+      const from = document.getElementById('from').value || 'ANON';
+      const to = document.getElementById('to').value || ('0x'+randomHex(8));
+      const amount = Number(document.getElementById('amount').value || '0');
+      const memo = document.getElementById('memo').value || '';
+      if(amount <= 0){ alert('Amount 는 0보다 커야 합니다.'); return; }
+      const tx = new Transaction(from,to,amount,memo);
+      state.bc.addTransaction(tx);
+      log(`mempool 추가: ${amount} from ${from} → ${to}`);
+      document.getElementById('amount').value='';
+      document.getElementById('memo').value='';
+    });
+
+    document.getElementById('btnMine').addEventListener('click', ()=>{
+      const from = document.getElementById('from').value;
+      if(!from){ alert('먼저 지갑 주소를 하나 이상 생성하세요.'); return; }
+      log(`채굴 시작: miner=${from}, tx=${state.bc.mempool.length}`);
+      // mining is sync (toy). Keep difficulty modest.
+      state.bc.minePending(from);
+    });
+
+    document.getElementById('btnValidate').addEventListener('click', ()=>{
+      const r = state.bc.isValid();
+      if(r.ok){ log('체인 유효성 검사: ✅ VALID'); alert('✅ VALID: 체인이 유효합니다.'); }
+      else{ log(`체인 유효성 검사: ❌ INVALID @ index ${r.index} (${r.reason})`); alert(`❌ INVALID @ index ${r.index} (${r.reason})`); }
+    });
+
+    document.getElementById('btnReset').addEventListener('click', ()=>{
+      if(!confirm('체인을 초기화하고 Genesis 로 되돌릴까요?')) return;
+      state.bc.reset(); renderChain(); renderMempool(); log('체인을 리셋했습니다.');
+    });
+
+    // =============================
+    //  Hash Generator
+    // =============================
+    document.getElementById('btnHashGen').addEventListener('click', ()=>{
+      const input = document.getElementById('hashInput').value;
+      const hash = toyHash(input);
+      document.getElementById('hashResult').textContent = hash;
+    });
+
+    // =============================
+    //  Block Hash Force Change
+    // =============================
+    document.getElementById('btnSetBlockHash').addEventListener('click', ()=>{
+      const idx = Number(document.getElementById('blockIndexInput').value);
+      const newHash = document.getElementById('newHashInput').value.trim();
+      if(isNaN(idx) || idx < 1 || idx >= state.bc.chain.length){
+        alert('유효한 블록 인덱스를 입력하세요. (1 이상, 현재 체인 길이 미만)');
+        return;
+      }
+      if(!newHash || newHash.length < 8){
+        alert('적어도 8글자 이상의 해시값을 입력하세요.');
+        return;
+      }
+      state.bc.chain[idx].hash = newHash;
+      renderChain();
+      log(`⚠️ 블록 #${idx}의 해시를 강제로 변경했습니다: ${newHash}`);
+    });
+
+    // =============================
+    //  Init
+    // =============================
+    (function init(){
+      renderAddrs();
+      renderMempool();
+      renderChain();
+      log('앱이 시작되었습니다. Genesis 블록이 준비되었습니다.');
+    })();
+  </script>
+</body>
+</html>
